@@ -1,0 +1,6 @@
+User-agent: *
+
+Sitemap: http://ventura.legal/sitemap_index.xml
+
+User-agent: 008
+Disallow: /
