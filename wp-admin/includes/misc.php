@@ -662,7 +662,7 @@ function wp_color_scheme_settings() {
 		$icon_colors = $_wp_admin_css_colors['fresh']->icon_colors;
 	} else {
 		// Fall back to the default set of icon colors if the default scheme is missing.
-		$icon_colors = array( 'base' => '#999', 'focus' => '#2ea2cc', 'current' => '#fff' );
+		$icon_colors = array( 'base' => '#999', 'focus' => '#00a0d2', 'current' => '#fff' );
 	}
 
 	echo '<script type="text/javascript">var _wpColorScheme = ' . wp_json_encode( array( 'icons' => $icon_colors ) ) . ";</script>\n";
@@ -854,10 +854,11 @@ add_action( 'post_edit_form_tag', 'post_form_autocomplete_off' );
 function wp_admin_canonical_url() {
 	$removable_query_args = array(
 		'message', 'settings-updated', 'saved',
-		'update', 'updated','activated',
+		'update', 'updated', 'activated',
 		'activate', 'deactivate', 'locked',
 		'deleted', 'trashed', 'untrashed',
 		'enabled', 'disabled', 'skipped',
+		'spammed', 'unspammed',
 	);
 
 	/**
@@ -880,7 +881,7 @@ function wp_admin_canonical_url() {
 	<link id="wp-admin-canonical" rel="canonical" href="<?php echo esc_url( $filtered_url ); ?>" />
 	<script>
 		if ( window.history.replaceState ) {
-			window.history.replaceState( null, null, document.getElementById( 'wp-admin-canonical' ).href );
+			window.history.replaceState( null, null, document.getElementById( 'wp-admin-canonical' ).href + window.location.hash );
 		}
 	</script>
 <?php

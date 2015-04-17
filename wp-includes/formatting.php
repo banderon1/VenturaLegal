@@ -235,7 +235,7 @@ function wptexturize($text, $reset = false) {
 		.     '(?(?=!--)'        // Is this a comment?
 		.         $comment_regex // Find end of comment.
 		.     '|'
-		.         '[^>]+>'       // Find end of element.
+		.         '[^>]*>'       // Find end of element.
 		.     ')'
 		. '|'
 		.     $shortcode_regex   // Find shortcodes.
@@ -360,14 +360,14 @@ function _wptexturize_pushpop_element($text, &$stack, $disabled_elements) {
  * Replaces double line-breaks with paragraph elements.
  *
  * A group of regex replaces used to identify text formatted with newlines and
- * replace double line-breaks with HTML paragraph tags. The remaining
- * line-breaks after conversion become <<br />> tags, unless $br is set to '0'
- * or 'false'.
+ * replace double line-breaks with HTML paragraph tags. The remaining line-breaks
+ * after conversion become <<br />> tags, unless $br is set to '0' or 'false'.
  *
  * @since 0.71
  *
  * @param string $pee The text which has to be formatted.
- * @param bool $br Optional. If set, this will convert all remaining line-breaks after paragraphing. Default true.
+ * @param bool   $br  Optional. If set, this will convert all remaining line-breaks
+ *                    after paragraphing. Default true.
  * @return string Text which has been converted into correct paragraph tags.
  */
 function wpautop($pee, $br = true) {
@@ -376,8 +376,13 @@ function wpautop($pee, $br = true) {
 	if ( trim($pee) === '' )
 		return '';
 
-	$pee = $pee . "\n"; // just to make things a little easier, pad the end
+	// Just to make things a little easier, pad the end.
+	$pee = $pee . "\n";
 
+	/*
+	 * Pre tags shouldn't be touched by autop.
+	 * Replace pre tags with placeholders and bring them back after autop.
+	 */
 	if ( strpos($pee, '<pre') !== false ) {
 		$pee_parts = explode( '</pre>', $pee );
 		$last_pee = array_pop($pee_parts);
@@ -402,62 +407,102 @@ function wpautop($pee, $br = true) {
 
 		$pee .= $last_pee;
 	}
-
+	// Change multiple <br>s into two line breaks, which will turn into paragraphs.
 	$pee = preg_replace('|<br />\s*<br />|', "\n\n", $pee);
-	// Space things out a little
-	$allblocks = '(?:table|thead|tfoot|caption|col|colgroup|tbody|tr|td|th|div|dl|dd|dt|ul|ol|li|pre|form|map|area|blockquote|address|math|style|p|h[1-6]|hr|fieldset|legend|section|article|aside|hgroup|header|footer|nav|figure|figcaption|details|menu|summary)';
-	$pee = preg_replace('!(<' . $allblocks . '[^>]*>)!', "\n$1", $pee);
-	$pee = preg_replace('!(</' . $allblocks . '>)!', "$1\n\n", $pee);
-	$pee = str_replace(array("\r\n", "\r"), "\n", $pee); // cross-platform newlines
 
+	$allblocks = '(?:table|thead|tfoot|caption|col|colgroup|tbody|tr|td|th|div|dl|dd|dt|ul|ol|li|pre|form|map|area|blockquote|address|math|style|p|h[1-6]|hr|fieldset|legend|section|article|aside|hgroup|header|footer|nav|figure|figcaption|details|menu|summary)';
+
+	// Add a single line break above block-level opening tags.
+	$pee = preg_replace('!(<' . $allblocks . '[^>]*>)!', "\n$1", $pee);
+
+	// Add a double line break below block-level closing tags.
+	$pee = preg_replace('!(</' . $allblocks . '>)!', "$1\n\n", $pee);
+
+	// Standardize newline characters to "\n".
+	$pee = str_replace(array("\r\n", "\r"), "\n", $pee); 
+
+	// Collapse line breaks before and after <option> elements so they don't get autop'd.
 	if ( strpos( $pee, '<option' ) !== false ) {
-		// no P/BR around option
 		$pee = preg_replace( '|\s*<option|', '<option', $pee );
 		$pee = preg_replace( '|</option>\s*|', '</option>', $pee );
 	}
 
+	/*
+	 * Collapse line breaks inside <object> elements, before <param> and <embed> elements
+	 * so they don't get autop'd.
+	 */
 	if ( strpos( $pee, '</object>' ) !== false ) {
-		// no P/BR around param and embed
 		$pee = preg_replace( '|(<object[^>]*>)\s*|', '$1', $pee );
 		$pee = preg_replace( '|\s*</object>|', '</object>', $pee );
 		$pee = preg_replace( '%\s*(</?(?:param|embed)[^>]*>)\s*%', '$1', $pee );
 	}
 
+	/*
+	 * Collapse line breaks inside <audio> and <video> elements,
+	 * before and after <source> and <track> elements.
+	 */
 	if ( strpos( $pee, '<source' ) !== false || strpos( $pee, '<track' ) !== false ) {
-		// no P/BR around source and track
 		$pee = preg_replace( '%([<\[](?:audio|video)[^>\]]*[>\]])\s*%', '$1', $pee );
 		$pee = preg_replace( '%\s*([<\[]/(?:audio|video)[>\]])%', '$1', $pee );
 		$pee = preg_replace( '%\s*(<(?:source|track)[^>]*>)\s*%', '$1', $pee );
 	}
 
-	$pee = preg_replace("/\n\n+/", "\n\n", $pee); // take care of duplicates
-	// make paragraphs, including one at the end
+	// Remove more than two contiguous line breaks.
+	$pee = preg_replace("/\n\n+/", "\n\n", $pee);
+
+	// Split up the contents into an array of strings, separated by double line breaks.
 	$pees = preg_split('/\n\s*\n/', $pee, -1, PREG_SPLIT_NO_EMPTY);
+
+	// Reset $pee prior to rebuilding.
 	$pee = '';
 
+	// Rebuild the content as a string, wrapping every bit with a <p>.
 	foreach ( $pees as $tinkle ) {
 		$pee .= '<p>' . trim($tinkle, "\n") . "</p>\n";
 	}
 
-	$pee = preg_replace('|<p>\s*</p>|', '', $pee); // under certain strange conditions it could create a P of entirely whitespace
+	// Under certain strange conditions it could create a P of entirely whitespace.
+	$pee = preg_replace('|<p>\s*</p>|', '', $pee); 
+
+	// Add a closing <p> inside <div>, <address>, or <form> tag if missing.
 	$pee = preg_replace('!<p>([^<]+)</(div|address|form)>!', "<p>$1</p></$2>", $pee);
-	$pee = preg_replace('!<p>\s*(</?' . $allblocks . '[^>]*>)\s*</p>!', "$1", $pee); // don't pee all over a tag
-	$pee = preg_replace("|<p>(<li.+?)</p>|", "$1", $pee); // problem with nested lists
+	
+	// If an opening or closing block element tag is wrapped in a <p>, unwrap it.
+	$pee = preg_replace('!<p>\s*(</?' . $allblocks . '[^>]*>)\s*</p>!', "$1", $pee); 
+	
+	// In some cases <li> may get wrapped in <p>, fix them.
+	$pee = preg_replace("|<p>(<li.+?)</p>|", "$1", $pee); 
+	
+	// If a <blockquote> is wrapped with a <p>, move it inside the <blockquote>.
 	$pee = preg_replace('|<p><blockquote([^>]*)>|i', "<blockquote$1><p>", $pee);
 	$pee = str_replace('</blockquote></p>', '</p></blockquote>', $pee);
+	
+	// If an opening or closing block element tag is preceded by an opening <p> tag, remove it.
 	$pee = preg_replace('!<p>\s*(</?' . $allblocks . '[^>]*>)!', "$1", $pee);
+	
+	// If an opening or closing block element tag is followed by a closing <p> tag, remove it.
 	$pee = preg_replace('!(</?' . $allblocks . '[^>]*>)\s*</p>!', "$1", $pee);
 
+	// Optionally insert line breaks.
 	if ( $br ) {
+		// Replace newlines that shouldn't be touched with a placeholder.
 		$pee = preg_replace_callback('/<(script|style).*?<\/\\1>/s', '_autop_newline_preservation_helper', $pee);
-		$pee = preg_replace('|(?<!<br />)\s*\n|', "<br />\n", $pee); // optionally make line breaks
+
+		// Replace any new line characters that aren't preceded by a <br /> with a <br />.
+		$pee = preg_replace('|(?<!<br />)\s*\n|', "<br />\n", $pee); 
+
+		// Replace newline placeholders with newlines.
 		$pee = str_replace('<WPPreserveNewline />', "\n", $pee);
 	}
 
+	// If a <br /> tag is after an opening or closing block tag, remove it.
 	$pee = preg_replace('!(</?' . $allblocks . '[^>]*>)\s*<br />!', "$1", $pee);
+	
+	// If a <br /> tag is before a subset of opening or closing block tags, remove it.
 	$pee = preg_replace('!<br />(\s*</?(?:p|li|div|dl|dd|dt|th|pre|td|ul|ol)[^>]*>)!', '$1', $pee);
 	$pee = preg_replace( "|\n</p>$|", '</p>', $pee );
 
+	// Replace placeholder <pre> tags with their original content.
 	if ( !empty($pre_tags) )
 		$pee = str_replace(array_keys($pre_tags), array_values($pre_tags), $pee);
 
@@ -2064,7 +2109,7 @@ function translate_smiley( $matches ) {
 	 */
 	$src_url = apply_filters( 'smilies_src', includes_url( "images/smilies/$img" ), $img, site_url() );
 
-	return sprintf( '<img src="%s" alt="%s" class="wp-smiley" />', esc_url( $src_url ), esc_attr( $smiley ) );
+	return sprintf( '<img src="%s" alt="%s" class="wp-smiley" style="height: 1em; max-height: 1em;" />', esc_url( $src_url ), esc_attr( $smiley ) );
 }
 
 /**
@@ -4037,15 +4082,23 @@ function wp_spaces_regexp() {
  * @since 4.2.0
  */
 function print_emoji_styles() {
+	static $printed = false;
+
+	if ( $printed ) {
+		return;
+	}
+
+	$printed = true;
 ?>
 <style type="text/css">
 img.wp-smiley,
 img.emoji {
+	display: inline !important;
 	border: none !important;
 	box-shadow: none !important;
 	height: 1em !important;
 	width: 1em !important;
-	margin: 0 .05em 0 .1em !important;
+	margin: 0 .07em !important;
 	vertical-align: -0.1em !important;
 	background: none !important;
 	padding: 0 !important;
@@ -4054,10 +4107,82 @@ img.emoji {
 <?php
 }
 
+function print_emoji_detection_script() {
+	global $wp_version;
+	static $printed = false;
+
+	if ( $printed ) {
+		return;
+	}
+
+	$printed = true;
+
+	$settings = array(
+		/**
+		 * Filter the URL where emoji images are hosted.
+		 *
+		 * @since 4.2.0
+		 *
+		 * @param string The emoji base URL.
+		 */
+		'baseUrl' => apply_filters( 'emoji_url', set_url_scheme( '//s.w.org/images/core/emoji/72x72/' ) ),
+
+		/**
+		 * Filter the extension of the emoji files.
+		 *
+		 * @since 4.2.0
+		 *
+		 * @param string The emoji extension. Default .png.
+		 */
+		'ext' => apply_filters( 'emoji_ext', '.png' ),
+	);
+
+	$version = 'ver=' . $wp_version;
+
+	if ( SCRIPT_DEBUG ) {
+		$settings['source'] = array(
+			/** This filter is documented in wp-includes/class.wp-scripts.php */
+			'wpemoji' => apply_filters( 'script_loader_src', includes_url( "js/wp-emoji.js?$version" ), 'wpemoji' ),
+			/** This filter is documented in wp-includes/class.wp-scripts.php */
+			'twemoji' => apply_filters( 'script_loader_src', includes_url( "js/twemoji.js?$version" ), 'twemoji' ),
+		);
+
+		?>
+		<script type="text/javascript">
+			window._wpemojiSettings = <?php echo wp_json_encode( $settings ); ?>;
+			<?php readfile( ABSPATH . WPINC . "/js/wp-emoji-loader.js" ); ?>
+		</script>
+		<?php
+	} else {
+		$settings['source'] = array(
+			/** This filter is documented in wp-includes/class.wp-scripts.php */
+			'concatemoji' => apply_filters( 'script_loader_src', includes_url( "js/wp-emoji-release.min.js?$version" ), 'concatemoji' ),
+		);
+
+		/*
+		 * If you're looking at a src version of this file, you'll see an "include"
+		 * statement below. This is used by the `grunt build` process to directly
+		 * include a minified version of wp-emoji-loader.js, instead of using the
+		 * readfile() method from above.
+		 *
+		 * If you're looking at a build version of this file, you'll see a string of
+		 * minified JavaScript. If you need to debug it, please turn on SCRIPT_DEBUG
+		 * and edit wp-emoji-loader.js directly.
+		 */
+		?>
+		<script type="text/javascript">
+			window._wpemojiSettings = <?php echo wp_json_encode( $settings ); ?>;
+			!function(a,b,c){function d(a){var c=b.createElement("canvas"),d=c.getContext&&c.getContext("2d");return d&&d.fillText?(d.textBaseline="top",d.font="600 32px Arial","flag"===a?(d.fillText(String.fromCharCode(55356,56812,55356,56807),0,0),c.toDataURL().length>3e3):(d.fillText(String.fromCharCode(55357,56835),0,0),0!==d.getImageData(16,16,1,1).data[0])):!1}function e(a){var c=b.createElement("script");c.src=a,c.type="text/javascript",b.getElementsByTagName("head")[0].appendChild(c)}var f;c.supports={simple:d("simple"),flag:d("flag")},c.supports.simple&&c.supports.flag||(f=c.source||{},f.concatemoji?e(f.concatemoji):f.wpemoji&&f.twemoji&&(e(f.twemoji),e(f.wpemoji)))}(window,document,window._wpemojiSettings);
+		</script>
+		<?php
+	}
+}
+
 /**
  * Convert any 4 byte emoji in a string to their equivalent HTML entity.
- * Currently, only Unicode 7 emoji are supported. Unicode 8 emoji will be added
- * when the spec in finalised, along with the new skin-tone modifiers.
+ *
+ * Currently, only Unicode 7 emoji are supported. Skin tone modifiers are allowed,
+ * all other Unicode 8 emoji will be added when the spec is finalised.
  *
  * This allows us to store emoji in a DB using the utf8 character set.
  *
@@ -4076,7 +4201,6 @@ function wp_encode_emoji( $content ) {
 		   | \xF0\x9F\x98[\x80-\xBF]        # Smilies
 		   | \xF0\x9F\x99[\x80-\x8F]
 		   | \xF0\x9F\x9A[\x80-\xBF]        # Transport and map symbols
-		   | \xF0\x9F\x99[\x80-\x85]
 		)/x';
 
 		$matches = array();
@@ -4090,7 +4214,7 @@ function wp_encode_emoji( $content ) {
 					 */
 					$unpacked = unpack( 'H*', mb_convert_encoding( $emoji, 'UTF-32', 'UTF-8' ) );
 					if ( isset( $unpacked[1] ) ) {
-						$entity = '&#x' . trim( $unpacked[1], '0' ) . ';';
+						$entity = '&#x' . ltrim( $unpacked[1], '0' ) . ';';
 						$content = str_replace( $emoji, $entity, $content );
 					}
 				}
@@ -4102,83 +4226,155 @@ function wp_encode_emoji( $content ) {
 }
 
 /**
- * Convert emoji to a static <img> link.
+ * Convert emoji to a static img element.
  *
  * @since 4.2.0
  *
- * @param string $content The content to encode.
+ * @param string $text The content to encode.
  * @return string The encoded content.
  */
-function wp_staticize_emoji( $content ) {
-	$content = wp_encode_emoji( $content );
+function wp_staticize_emoji( $text ) {
+	$text = wp_encode_emoji( $text );
 
 	if ( ! class_exists( 'DOMDocument' ) ) {
-		return $content;
+		return $text;
 	}
 
-	/** This filter is documented in wp-includes/script-loader.php */
-	$cdn_url = apply_filters( 'emoji_url', '//s0.wp.com/wp-content/mu-plugins/emoji/twemoji/72x72/' );
-	/** This filter is documented in wp-includes/script-loader.php */
+	/** This filter is documented in wp-includes/formatting.php */
+	$cdn_url = apply_filters( 'emoji_url', set_url_scheme( '//s.w.org/images/core/emoji/72x72/' ) );
+
+	/** This filter is documented in wp-includes/formatting.php */
 	$ext = apply_filters( 'emoji_ext', '.png' );
 
-	$html = '<!DOCTYPE html><html><head></head><body>' . $content . '</body></html>';
+	$output = '';
+	/*
+	 * HTML loop taken from smiley function, which was taken from texturize function.
+	 * It'll never be consolidated.
+	 *
+	 * First, capture the tags as well as in between.
+	 */
+	$textarr = preg_split( '/(<.*>)/U', $text, -1, PREG_SPLIT_DELIM_CAPTURE );
+	$stop = count( $textarr );
 
-	$document = new DOMDocument;
-	if ( ! $document->loadHTML( $html ) ) {
-		return $content;
-	}
+	// Ignore processing of specific tags.
+	$tags_to_ignore = 'code|pre|style|script|textarea';
+	$ignore_block_element = '';
 
-	$xpath = new DOMXPath( $document );
-	$textnodes = $xpath->query( '//text()' );
+	for ( $i = 0; $i < $stop; $i++ ) {
+		$content = $textarr[$i];
 
-	foreach( $textnodes as $node ) {
-		$originalText = $text = wp_encode_emoji( $node->nodeValue );
+		// If we're in an ignore block, wait until we find its closing tag.
+		if ( '' == $ignore_block_element && preg_match( '/^<(' . $tags_to_ignore . ')>/', $content, $matches ) )  {
+			$ignore_block_element = $matches[1];
+		}
 
-		$matches = array();
-		if ( preg_match_all( '/(&#x1f1(e[6-9a-f]|f[0-9a-f]);){2}/', $text, $matches ) ) {
-			if ( ! empty( $matches[0] ) ) {
-				foreach ( $matches[0] as $flag ) {
-					$chars = str_replace( array( '&#x', ';'), '', $flag );
+		// If it's not a tag and not in ignore block.
+		if ( '' ==  $ignore_block_element && strlen( $content ) > 0 && '<' != $content[0] ) {
+			$matches = array();
+			if ( preg_match_all( '/(&#x1f1(e[6-9a-f]|f[0-9a-f]);){2}/', $content, $matches ) ) {
+				if ( ! empty( $matches[0] ) ) {
+					foreach ( $matches[0] as $flag ) {
+						$chars = str_replace( array( '&#x', ';'), '', $flag );
 
-					list( $char1, $char2 ) = str_split( $chars, 5 );
-					$entity = '<img src="https:' . $cdn_url . $char1 . '-' . $char2 . $ext . '" class="wp-smiley" style="height: 1em;" />';
+						list( $char1, $char2 ) = str_split( $chars, 5 );
+						$entity = sprintf( '<img src="%s" alt="%s" class="wp-smiley" style="height: 1em; max-height: 1em;" />', $cdn_url . $char1 . '-' . $char2 . $ext, html_entity_decode( $flag ) );
 
-					$text = str_replace( $flag, $entity, $text );
+						$content = str_replace( $flag, $entity, $content );
+					}
+				}
+			}
+
+			// Loosely match the Emoji Unicode range.
+			$regex = '/(&#x[2-3][0-9a-f]{3};|&#x1f[1-6][0-9a-f]{2};)/';
+
+			$matches = array();
+			if ( preg_match_all( $regex, $content, $matches ) ) {
+				if ( ! empty( $matches[1] ) ) {
+					foreach ( $matches[1] as $emoji ) {
+						$char = str_replace( array( '&#x', ';'), '', $emoji );
+						$entity = sprintf( '<img src="%s" alt="%s" class="wp-smiley" style="height: 1em; max-height: 1em;" />', $cdn_url . $char . $ext, html_entity_decode( $emoji ) );
+
+						$content = str_replace( $emoji, $entity, $content );
+					}
 				}
 			}
 		}
 
-		// Loosely match the Emoji Unicode range.
-		$regex = '/(&#x[2-3][0-9a-f]{3};|&#x1f[1-6][0-9a-f]{2};)/';
-
-		$matches = array();
-		if ( preg_match_all( $regex, $text, $matches ) ) {
-			if ( ! empty( $matches[1] ) ) {
-				foreach ( $matches[1] as $emoji ) {
-					$char = str_replace( array( '&#x', ';'), '', $emoji );
-					$entity = '<img src="https:' . $cdn_url . $char . $ext . '" class="wp-smiley" style="height: 1em;" />';
-
-					$text = str_replace( $emoji, $entity, $text );
-				}
-			}
+		// Did we exit ignore block.
+		if ( '' != $ignore_block_element && '</' . $ignore_block_element . '>' == $content )  {
+			$ignore_block_element = '';
 		}
 
-		if ( $originalText !== $text ) {
-			$content = str_replace( $originalText, $text, $content );
-		}
+		$output .= $content;
 	}
 
-	return $content;
+	return $output;
 }
 
 /**
  * Convert emoji in emails into static images.
  *
- * @param array $mail The email data array.
+ * @ignore
+ * @since 4.2.0
  *
+ * @param array $mail The email data array.
  * @return array The email data array, with emoji in the message staticized.
  */
-function mail_emoji( $mail ) {
-	$mail['message'] = wp_staticize_emoji( $mail['message'], true );
+function _wp_staticize_emoji_for_email( $mail ) {
+	if ( ! isset( $mail['message'] ) ) {
+		return $mail;
+	}
+
+	/*
+	 * We can only transform the emoji into images if it's a text/html email.
+	 * To do that, here's a cut down version of the same process that happens
+	 * in wp_mail() - get the Content-Type from the headers, if there is one,
+	 * then pass it through the wp_mail_content_type filter, in case a plugin
+	 * is handling changing the Content-Type.
+	 */
+	$headers = array();
+	if ( isset( $mail['headers'] ) ) {
+		if ( is_array( $mail['headers'] ) ) {
+			$headers = $mail['headers'];
+		} else {
+			$headers = explode( "\n", str_replace( "\r\n", "\n", $mail['headers'] ) );
+		}
+	}
+
+	foreach ( $headers as $header ) {
+		if ( strpos($header, ':') === false ) {
+			continue;
+		}
+
+		// Explode them out.
+		list( $name, $content ) = explode( ':', trim( $header ), 2 );
+
+		// Cleanup crew.
+		$name    = trim( $name    );
+		$content = trim( $content );
+
+		if ( 'content-type' === strtolower( $name ) ) {
+			if ( strpos( $content, ';' ) !== false ) {
+				list( $type, $charset ) = explode( ';', $content );
+				$content_type = trim( $type );
+			} else {
+				$content_type = trim( $content );
+			}
+			break;
+		}
+	}
+
+	// Set Content-Type if we don't have a content-type from the input headers.
+	if ( ! isset( $content_type ) ) {
+		$content_type = 'text/plain';
+	}
+
+	/** This filter is documented in wp-includes/pluggable.php */
+	$content_type = apply_filters( 'wp_mail_content_type', $content_type );
+
+	if ( 'text/html' === $content_type ) {
+		$mail['message'] = wp_staticize_emoji( $mail['message'], true );
+	}
+
 	return $mail;
 }

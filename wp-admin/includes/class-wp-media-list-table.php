@@ -168,7 +168,8 @@ class WP_Media_List_Table extends WP_List_Table {
 	<div class="filter-items">
 		<?php $this->view_switcher( $mode ); ?>
 
-		<select class="attachment-filters" name="attachment-filter">
+		<label for="attachment-filter" class="screen-reader-text"><?php _e( 'Filter by type' ); ?></label>
+		<select class="attachment-filters" name="attachment-filter" id="attachment-filter">
 			<?php
 			if ( ! empty( $views ) ) {
 				foreach ( $views as $class => $view ) {
@@ -340,14 +341,7 @@ foreach ( $columns as $column_name => $column_display_name ) {
 				<?php echo $att_title; ?></a>
 			<?php };
 			_media_states( $post ); ?></strong>
-			<p>
-<?php
-			if ( preg_match( '/^.*?\.(\w+)$/', get_attached_file( $post->ID ), $matches ) )
-				echo esc_html( strtoupper( $matches[1] ) );
-			else
-				echo strtoupper( str_replace( 'image/', '', get_post_mime_type() ) );
-?>
-			</p>
+			<p class="filename"><?php echo wp_basename( $post->guid ); ?></p>
 <?php
 		echo $this->row_actions( $this->_get_row_actions( $post, $att_title ) );
 ?>

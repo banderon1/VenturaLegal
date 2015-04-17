@@ -148,6 +148,21 @@ class WP_Posts_List_Table extends WP_List_Table {
 			echo get_post_type_object( $this->screen->post_type )->labels->not_found;
 	}
 
+	/**
+	 * Determine if the current view is the "All" view.
+	 *
+	 * @since 4.2.0
+	 *
+	 * @return bool Whether the current ivew is the "All" view.
+	 */
+	protected function is_base_request() {
+		if ( empty( $_GET ) ) {
+			return true;
+		} elseif ( 1 === count( $_GET ) && ! empty( $_GET['post_type'] ) ) {
+			return $this->screen->post_type === $_GET['post_type'];
+		}
+	}
+
 	protected function get_views() {
 		global $locked_post_status, $avail_post_stati;
 
@@ -168,6 +183,7 @@ class WP_Posts_List_Table extends WP_List_Table {
 				$class = ' class="current"';
 			$status_links['mine'] = "<a href='edit.php?post_type=$post_type&author=$current_user_id'$class>" . sprintf( _nx( 'Mine <span class="count">(%s)</span>', 'Mine <span class="count">(%s)</span>', $this->user_posts_count, 'posts' ), number_format_i18n( $this->user_posts_count ) ) . '</a>';
 			$allposts = '&all_posts=1';
+			$class = '';
 		}
 
 		$total_posts = array_sum( (array) $num_posts );
@@ -176,8 +192,21 @@ class WP_Posts_List_Table extends WP_List_Table {
 		foreach ( get_post_stati( array('show_in_admin_all_list' => false) ) as $state )
 			$total_posts -= $num_posts->$state;
 
-		$class = empty( $class ) && empty( $_REQUEST['post_status'] ) && empty( $_REQUEST['show_sticky'] ) ? ' class="current"' : '';
-		$status_links['all'] = "<a href='edit.php?post_type=$post_type{$allposts}'$class>" . sprintf( _nx( 'All <span class="count">(%s)</span>', 'All <span class="count">(%s)</span>', $total_posts, 'posts' ), number_format_i18n( $total_posts ) ) . '</a>';
+		if ( empty( $class ) && $this->is_base_request() && ! $this->user_posts_count ) {
+			$class =  ' class="current"';
+		}
+
+		$all_inner_html = sprintf(
+			_nx(
+				'All <span class="count">(%s)</span>',
+				'All <span class="count">(%s)</span>',
+				$total_posts,
+				'posts'
+			),
+			number_format_i18n( $total_posts )
+		);
+
+		$status_links['all'] = "<a href='edit.php?post_type=$post_type{$allposts}'$class>" . $all_inner_html . '</a>';
 
 		foreach ( get_post_stati(array('show_in_admin_status_list' => true), 'objects') as $status ) {
 			$class = '';
@@ -525,7 +554,7 @@ class WP_Posts_List_Table extends WP_List_Table {
 		_prime_post_caches( $ids );
 
 		if ( ! isset( $GLOBALS['post'] ) ) {
-			$GLOBALS['post'] = array_shift( $ids );
+			$GLOBALS['post'] = reset( $ids );
 		}
 
 		foreach ( $to_display as $page_id => $level ) {
@@ -547,7 +576,7 @@ class WP_Posts_List_Table extends WP_List_Table {
 	 * @param int $level
 	 * @param int $pagenum
 	 * @param int $per_page
-	 * @param array $to_display list of pages to be displayed
+	 * @param array $to_display List of pages to be displayed. Passed by reference.
 	 */
 	private function _page_rows( &$children_pages, &$count, $parent, $level, $pagenum, $per_page, &$to_display ) {
 
@@ -793,7 +822,7 @@ class WP_Posts_List_Table extends WP_List_Table {
 					$t_time = $h_time = __( 'Unpublished' );
 					$time_diff = 0;
 				} else {
-					$t_time = get_the_time( __( 'Y/m/d g:i:s A' ) );
+					$t_time = get_the_time( __( 'Y/m/d g:i:s a' ) );
 					$m_time = $post->post_date;
 					$time = get_post_time( 'G', true, $post );
 
@@ -981,7 +1010,7 @@ class WP_Posts_List_Table extends WP_List_Table {
 			$show_in_quick_edit = $taxonomy->show_in_quick_edit;
 
 			/**
-			 * Filters whether the current taxonomy should be shown in the Quick Edit panel.
+			 * Filter whether the current taxonomy should be shown in the Quick Edit panel.
 			 *
 			 * @since 4.2.0
 			 *
@@ -1084,7 +1113,7 @@ class WP_Posts_List_Table extends WP_List_Table {
 					<span class="input-text-wrap"><input type="text" name="post_password" class="inline-edit-password-input" value="" /></span>
 				</label>
 
-				<em style="margin:5px 10px 0 0" class="alignleft">
+				<em class="alignleft inline-edit-or">
 					<?php
 					/* translators: Between password field and private checkbox on post quick edit interface */
 					echo __( '&ndash;OR&ndash;' );

@@ -56,7 +56,7 @@ inlineEditTax = {
 		editRow = $('#inline-edit').clone(true), rowData = $('#inline_'+id);
 		$('td', editRow).attr('colspan', $('.widefat:first thead th:visible').length);
 
-		$(t.what+id).hide().before(editRow).before('<tr class="hidden"></tr>');
+		$(t.what+id).hide().after(editRow).after('<tr class="hidden"></tr>');
 
 		val = $('.name', rowData);
 		val.find( 'img' ).replaceWith( function() { return this.alt; } );
@@ -81,7 +81,7 @@ inlineEditTax = {
 			id = this.getId(id);
 		}
 
-		$('table.widefat .spinner').show();
+		$( 'table.widefat .spinner' ).addClass( 'is-active' );
 
 		params = {
 			action: 'inline-save-tax',
@@ -97,7 +97,7 @@ inlineEditTax = {
 		$.post( ajaxurl, params,
 			function(r) {
 				var row, new_id, option_value;
-				$('table.widefat .spinner').hide();
+				$( 'table.widefat .spinner' ).removeClass( 'is-active' );
 
 				if (r) {
 					if ( -1 !== r.indexOf( '<tr' ) ) {
@@ -117,10 +117,6 @@ inlineEditTax = {
 						// Update the value in the Parent dropdown.
 						$( '#parent' ).find( 'option[value=' + option_value + ']' ).text( row.find( '.row-title' ).text() );
 
-						if ( WPEmoji ) {
-							WPEmoji.parse( row.get( 0 ) );
-						}
-
 						row.hide().fadeIn();
 					} else {
 						$('#edit-'+id+' .inline-edit-save .error').html(r).show();
@@ -137,7 +133,7 @@ inlineEditTax = {
 		var id = $('table.widefat tr.inline-editor').attr('id');
 
 		if ( id ) {
-			$('table.widefat .spinner').hide();
+			$( 'table.widefat .spinner' ).removeClass( 'is-active' );
 			$('#'+id).siblings('tr.hidden').addBack().remove();
 			id = id.substr( id.lastIndexOf('-') + 1 );
 			$(this.what+id).show();

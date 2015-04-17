@@ -4,8 +4,9 @@
  */
 ( function( $, window ) {
 	var PressThis = function() {
-		var editor,
+		var editor, $mediaList, $mediaThumbWrap,
 			saveAlert             = false,
+			editLinkVisible       = false,
 			textarea              = document.createElement( 'textarea' ),
 			sidebarIsOpen         = false,
 			settings              = window.wpPressThisConfig || {},
@@ -101,29 +102,42 @@
 		 * Show UX spinner
 		 */
 		function showSpinner() {
-			$( '#spinner' ).addClass( 'show' );
-			$( '.post-actions button' ).each( function() {
-				$( this ).attr( 'disabled', 'disabled' );
-			} );
+			$( '.spinner' ).addClass( 'is-active' );
+			$( '.post-actions button' ).attr( 'disabled', 'disabled' );
 		}
 
 		/**
 		 * Hide UX spinner
 		 */
 		function hideSpinner() {
-			$( '#spinner' ).removeClass( 'show' );
-			$( '.post-actions button' ).each( function() {
-				$( this ).removeAttr( 'disabled' );
-			} );
+			$( '.spinner' ).removeClass( 'is-active' );
+			$( '.post-actions button' ).removeAttr( 'disabled' );
+		}
+
+		/**
+		 * Replace emoji images with chars and sanitize the text content.
+		 */
+		function getTitleText() {
+			var $element = $( '#title-container' );
+
+			$element.find( 'img.emoji' ).each( function() {
+				var $image = $( this );
+				$image.replaceWith( $( '<span>' ).text( $image.attr( 'alt' ) ) );
+			});
+
+			return sanitizeText( $element.text() );
 		}
 
 		/**
 		 * Prepare the form data for saving.
 		 */
 		function prepareFormData() {
+			var $form = $( '#pressthis-form' ),
+				$input = $( '<input type="hidden" name="post_category[]" value="">' );
+
 			editor && editor.save();
 
-			$( '#post_title' ).val( sanitizeText( $( '#title-container' ).text() ) );
+			$( '#post_title' ).val( getTitleText() );
 
 			// Make sure to flush out the tags with tagBox before saving
 			if ( window.tagBox ) {
@@ -131,6 +145,16 @@
 					window.tagBox.flushTags( this, false, 1 );
 				} );
 			}
+
+			// Get selected categories
+			$( '.categories-select .category' ).each( function( i, element ) {
+				var $cat = $( element );
+
+				if ( $cat.hasClass( 'selected' ) ) {
+					// Have to append a node as we submit the actual form on preview
+					$form.append( $input.clone().val( $cat.attr( 'data-term-id' ) || '' ) );
+				}
+			});
 		}
 
 		/**
@@ -139,7 +163,8 @@
 		 * @param action string publish|draft
 		 */
 		function submitPost( action ) {
-			var data;
+			var data,
+				keepFocus = $( document.activeElement ).hasClass( 'draft-button' );
 
 			saveAlert = false;
 			showSpinner();
@@ -154,24 +179,54 @@
 			$.ajax( {
 				type: 'post',
 				url: window.ajaxurl,
-				data: data,
-				success: function( response ) {
-					if ( ! response.success ) {
-						renderError( response.data.errorMessage );
-						hideSpinner();
-					} else if ( response.data.redirect ) {
-						if ( window.opener && settings.redirInParent ) {
-							try {
-								window.opener.location.href = response.data.redirect;
-							} catch( er ) {}
+				data: data
+			}).always( function() {
+				hideSpinner();
+				clearNotices();
+			}).done( function( response ) {
+				var $link, $button;
 
-							window.self.close();
-						} else {
-							window.location.href = response.data.redirect;
-						}
+				if ( ! response.success ) {
+					renderError( response.data.errorMessage );
+				} else if ( response.data.redirect ) {
+					if ( window.opener && settings.redirInParent ) {
+						try {
+							window.opener.location.href = response.data.redirect;
+						} catch( er ) {}
+
+						window.self.close();
+					} else {
+						window.location.href = response.data.redirect;
 					}
+				} else if ( response.data.postSaved ) {
+					$link = $( '.edit-post-link' );
+					$button = $( '.draft-button' );
+					editLinkVisible = true;
+
+					$button.fadeOut( 200, function() {
+						$button.removeClass( 'is-saving' );
+						$link.fadeIn( 200, function() {
+							var active = document.activeElement;
+							// Different browsers move the focus to different places when the button is disabled.
+							if ( keepFocus && ( active === $button[0] || $( active ).hasClass( 'post-actions' ) || active.nodeName === 'BODY' ) ) {
+								$link.focus();
+							}
+						});
+					});
 				}
-			} );
+			}).fail( function() {
+				renderError( __( 'serverError' ) );
+			});
+		}
+
+		function resetDraftButton() {
+			if ( editLinkVisible ) {
+				editLinkVisible = false;
+
+				$( '.edit-post-link' ).fadeOut( 200, function() {
+					$( '.draft-button' ).removeClass( 'is-saving' ).fadeIn( 200 );
+				});
+			}
 		}
 
 		/**
@@ -181,32 +236,31 @@
 		 * @param src string Source URL
 		 * @param link string Optional destination link, for images (defaults to src)
 		 */
-		function insertSelectedMedia( type, src, link ) {
-			var newContent = '';
+		function insertSelectedMedia( $element ) {
+			var src, link, newContent = '';
 
 			if ( ! editor ) {
 				return;
 			}
 
-			src = checkUrl( src );
-			link = checkUrl( link );
+			src = checkUrl( $element.attr( 'data-wp-src' ) || '' );
+			link = checkUrl( data.u );
 
-			if ( 'img' === type ) {
+			if ( $element.hasClass( 'is-image' ) ) {
 				if ( ! link ) {
 					link = src;
 				}
 
-				newContent = '<a href="' + link + '"><img class="alignnone size-full" src="' + src + '" /></a>\n';
+				newContent = '<a href="' + link + '"><img class="alignnone size-full" src="' + src + '" /></a>';
 			} else {
-				newContent = '[embed]' + src + '[/embed]\n';
+				newContent = '[embed]' + src + '[/embed]';
 			}
 
 			if ( ! hasSetFocus ) {
-				editor.focus();
+				editor.setContent( '<p>' + newContent + '</p>' + editor.getContent() );
+			} else {
+				editor.execCommand( 'mceInsertContent', false, newContent );
 			}
-
-			editor.execCommand( 'mceInsertContent', false, newContent );
-			hasSetFocus = true;
 		}
 
 		/**
@@ -232,18 +286,17 @@
 				if ( ! response.success ) {
 					renderError( response.data.errorMessage );
 				} else {
-					// TODO: change if/when the html changes.
 					var $parent, $ul,
 						$wrap = $( 'ul.categories-select' );
 
 					$.each( response.data, function( i, newCat ) {
-						var $node = $( '<li>' ).attr( 'id', 'category-' + newCat.term_id )
-							.append( $( '<label class="selectit">' ).text( newCat.name )
-								.append( $( '<input type="checkbox" name="post_category[]" checked>' ).attr( 'value', newCat.term_id ) ) );
+						var $node = $( '<li>' ).append( $( '<div class="category selected" tabindex="0" role="checkbox" aria-checked="true">' )
+							.attr( 'data-term-id', newCat.term_id )
+							.text( newCat.name ) );
 
 						if ( newCat.parent ) {
 							if ( ! $ul || ! $ul.length ) {
-								$parent = $wrap.find( '#category-' + newCat.parent );
+								$parent = $wrap.find( 'div[data-term-id="' + newCat.parent + '"]' ).parent();
 								$ul = $parent.find( 'ul.children:first' );
 
 								if ( ! $ul.length ) {
@@ -251,11 +304,12 @@
 								}
 							}
 
-							$ul.append( $node );
-							// TODO: set focus on
+							$ul.prepend( $node );
 						} else {
 							$wrap.prepend( $node );
 						}
+
+						$node.focus();
 					} );
 
 					refreshCatsCache();
@@ -298,6 +352,10 @@
 			renderNotice( msg, true );
 		}
 
+		function clearNotices() {
+			$( 'div.alerts' ).empty();
+		}
+
 		/**
 		 * Render notices on page load, if any already
 		 */
@@ -308,33 +366,36 @@
 					renderError( msg );
 				} );
 			}
+		}
 
-			// Prompt user to upgrade their bookmarklet if there is a version mismatch.
-			if ( data.v && settings.version && ( data.v + '' ) !== ( settings.version + '' ) ) {
-				$( '.should-upgrade-bookmarklet' ).removeClass( 'is-hidden' );
-			}
+		/**
+		 * Add an image to the list of found images.
+		 */
+		function addImg( src, displaySrc, i ) {
+			var $element = $mediaThumbWrap.clone().addClass( 'is-image' );
+
+			$element.attr( 'data-wp-src', src ).css( 'background-image', 'url(' + displaySrc + ')' )
+				.find( 'span' ).text( __( 'suggestedImgAlt' ).replace( '%d', i + 1 ) );
+
+			$mediaList.append( $element );
 		}
 
 		/**
 		 * Render the detected images and embed for selection, if any
 		 */
 		function renderDetectedMedia() {
-			var mediaContainer = $( '#featured-media-container'),
-				listContainer  = $( '#all-media-container' ),
-				found          = 0;
+			var found = 0;
 
-			listContainer.empty();
-
-			if ( data._embeds || data._images ) {
-				listContainer.append( '<h2 class="screen-reader-text">' + __( 'allMediaHeading' ) + '</h2><ul class="wppt-all-media-list" />' );
-			}
+			$mediaList = $( 'ul.media-list' );
+			$mediaThumbWrap = $( '<li class="suggested-media-thumbnail" tabindex="0"><span class="screen-reader-text"></span></li>' );
 
 			if ( data._embeds ) {
 				$.each( data._embeds, function ( i, src ) {
-					src = checkUrl( src );
-
 					var displaySrc = '',
-						cssClass   = 'suggested-media-thumbnail suggested-media-embed';
+						cssClass = '',
+						$element = $mediaThumbWrap.clone().addClass( 'is-embed' );
+
+					src = checkUrl( src );
 
 					if ( src.indexOf( 'youtube.com/' ) > -1 ) {
 						displaySrc = 'https://i.ytimg.com/vi/' + src.replace( /.+v=([^&]+).*/, '$1' ) + '/hqdefault.jpg';
@@ -353,61 +414,50 @@
 						cssClass += ' is-video';
 					}
 
-					$( '<li></li>', {
-						'id': 'embed-' + i + '-container',
-						'class': cssClass,
-						'tabindex': '0'
-					} ).css( {
-						'background-image': ( displaySrc ) ? 'url(' + displaySrc + ')' : null
-					} ).html(
-						'<span class="screen-reader-text">' + __( 'suggestedEmbedAlt' ).replace( '%d', i + 1 ) + '</span>'
-					).on( 'click keypress', function ( e ) {
-						if ( e.type === 'click' || e.which === 13 ) {
-							insertSelectedMedia( 'embed',src );
-						}
-					} ).appendTo( '.wppt-all-media-list', listContainer );
+					$element.attr( 'data-wp-src', src ).find( 'span' ).text( __( 'suggestedEmbedAlt' ).replace( '%d', i + 1 ) );
 
+					if ( displaySrc ) {
+						$element.css( 'background-image', 'url(' + displaySrc + ')' );
+					}
+
+					$mediaList.append( $element );
 					found++;
 				} );
 			}
 
 			if ( data._images ) {
 				$.each( data._images, function( i, src ) {
-					src = checkUrl( src );
+					var displaySrc, img = new Image();
 
-					var displaySrc = src.replace(/^(http[^\?]+)(\?.*)?$/, '$1');
+					src = checkUrl( src );
+					displaySrc = src.replace( /^(http[^\?]+)(\?.*)?$/, '$1' );
+
 					if ( src.indexOf( 'files.wordpress.com/' ) > -1 ) {
-						displaySrc = displaySrc.replace(/\?.*$/, '') + '?w=' + smallestWidth;
+						displaySrc = displaySrc.replace( /\?.*$/, '' ) + '?w=' + smallestWidth;
 					} else if ( src.indexOf( 'gravatar.com/' ) > -1 ) {
 						displaySrc = displaySrc.replace( /\?.*$/, '' ) + '?s=' + smallestWidth;
 					} else {
 						displaySrc = src;
 					}
 
-					$( '<li></li>', {
-						'id': 'img-' + i + '-container',
-						'class': 'suggested-media-thumbnail is-image',
-						'tabindex': '0'
-					} ).css( {
-						'background-image': 'url(' + displaySrc + ')'
-					} ).html(
-						'<span class="screen-reader-text">' +__( 'suggestedImgAlt' ).replace( '%d', i + 1 ) + '</span>'
-					).on( 'click keypress', function ( e ) {
-						if ( e.type === 'click' || e.which === 13 ) {
-							insertSelectedMedia( 'img', src, data.u );
-						}
-					} ).appendTo( '.wppt-all-media-list', listContainer );
+					img.onload = function() {
+						if ( ( img.width && img.width < 256 ) ||
+							( img.height && img.height < 128 ) ) {
 
+							return;
+						}
+
+						addImg( src, displaySrc, i );
+					};
+
+					img.src = src;
 					found++;
 				} );
 			}
 
-			if ( ! found ) {
-				mediaContainer.removeClass( 'all-media-visible' ).addClass( 'no-media');
-				return;
+			if ( found ) {
+				$( '.media-list-container' ).addClass( 'has-media' );
 			}
-
-			mediaContainer.removeClass( 'no-media' ).addClass( 'all-media-visible' );
 		}
 
 		/* ***************************************************************
@@ -465,11 +515,12 @@
 		function openSidebar() {
 			sidebarIsOpen = true;
 
-			$( '.options-open, .press-this-actions, #scanbar' ).addClass( isHidden );
-			$( '.options-close, .options-panel-back' ).removeClass( isHidden );
+			$( '.options' ).removeClass( 'closed' ).addClass( 'open' );
+			$( '.press-this-actions, #scanbar' ).addClass( isHidden );
+			$( '.options-panel-back' ).removeClass( isHidden );
 
 			$( '.options-panel' ).removeClass( offscreenHidden )
-				.one( 'transitionend', function() {
+				.one( transitionEndEvent, function() {
 					$( '.post-option:first' ).focus();
 				} );
 		}
@@ -477,11 +528,12 @@
 		function closeSidebar() {
 			sidebarIsOpen = false;
 
-			$( '.options-close, .options-panel-back' ).addClass( isHidden );
-			$( '.options-open, .press-this-actions, #scanbar' ).removeClass( isHidden );
+			$( '.options' ).removeClass( 'open' ).addClass( 'closed' );
+			$( '.options-panel-back' ).addClass( isHidden );
+			$( '.press-this-actions, #scanbar' ).removeClass( isHidden );
 
 			$( '.options-panel' ).addClass( isOffScreen )
-				.one( 'transitionend', function() {
+				.one( transitionEndEvent, function() {
 					$( this ).addClass( isHidden );
 					// Reset to options list
 					$( '.post-options' ).removeClass( offscreenHidden );
@@ -493,20 +545,85 @@
 		 * Interactive behavior for the post title's field placeholder
 		 */
 		function monitorPlaceholder() {
-			var $titleField = $( '#title-container'),
-				$placeholder = $('.post-title-placeholder');
+			var $titleField = $( '#title-container' ),
+				$placeholder = $( '.post-title-placeholder' );
 
 			$titleField.on( 'focus', function() {
-				$placeholder.addClass('is-hidden');
+				$placeholder.addClass( 'is-hidden' );
+				resetDraftButton();
 			}).on( 'blur', function() {
-				if ( ! $titleField.text() ) {
-					$placeholder.removeClass('is-hidden');
+				if ( ! $titleField.text() && ! $titleField.html() ) {
+					$placeholder.removeClass( 'is-hidden' );
 				}
+			}).on( 'keyup', function() {
+				saveAlert = true;
+			}).on( 'paste', function( event ) {
+				var text, range,
+					clipboard = event.originalEvent.clipboardData || window.clipboardData;
+
+				if ( clipboard ) {
+					try{
+						text = clipboard.getData( 'Text' ) || clipboard.getData( 'text/plain' );
+
+						if ( text ) {
+							text = $.trim( text.replace( /\s+/g, ' ' ) );
+
+							if ( window.getSelection ) {
+								range = window.getSelection().getRangeAt(0);
+
+								if ( range ) {
+									if ( ! range.collapsed ) {
+										range.deleteContents();
+									}
+
+									range.insertNode( document.createTextNode( text ) );
+								}
+							} else if ( document.selection ) {
+								range = document.selection.createRange();
+
+								if ( range ) {
+									range.text = text;
+								}
+							}
+						}
+					} catch ( er ) {}
+
+					event.preventDefault();
+				}
+
+				saveAlert = true;
+
+				setTimeout( function() {
+					$titleField.text( getTitleText() );
+				}, 50 );
 			});
 
-			if ( $titleField.text() ) {
+			if ( $titleField.text() || $titleField.html() ) {
 				$placeholder.addClass('is-hidden');
 			}
+		}
+
+		function toggleCatItem( $element ) {
+			if ( $element.hasClass( 'selected' ) ) {
+				$element.removeClass( 'selected' ).attr( 'aria-checked', 'false' );
+			} else {
+				$element.addClass( 'selected' ).attr( 'aria-checked', 'true' );
+			}
+		}
+
+		function monitorCatList() {
+			$( '.categories-select' ).on( 'click.press-this keydown.press-this', function( event ) {
+				var $element = $( event.target );
+
+				if ( $element.is( 'div.category' ) ) {
+					if ( event.type === 'keydown' && event.keyCode !== 32 ) {
+						return;
+					}
+
+					toggleCatItem( $element );
+					event.preventDefault();
+				}
+			});
 		}
 
 		/* ***************************************************************
@@ -530,43 +647,56 @@
 		/**
 		 * Set app events and other state monitoring related code.
 		 */
-		function monitor(){
+		function monitor() {
 			$( document ).on( 'tinymce-editor-init', function( event, ed ) {
 				editor = ed;
 
-				ed.on( 'focus', function() {
+				editor.on( 'nodechange', function() {
 					hasSetFocus = true;
+					resetDraftButton();
 				} );
+			}).on( 'click.press-this keypress.press-this', '.suggested-media-thumbnail', function( event ) {
+				if ( event.type === 'click' || event.keyCode === 13 ) {
+					insertSelectedMedia( $( this ) );
+				}
 			});
 
-			$( '#current-site a').click( function( e ) {
-				e.preventDefault();
-			} );
-
 			// Publish, Draft and Preview buttons
-
 			$( '.post-actions' ).on( 'click.press-this', function( event ) {
-				var $target = $( event.target );
+				var $target = $( event.target ),
+					$button = $target.closest( 'button' );
 
-				if ( $target.hasClass( 'draft-button' ) ) {
-					submitPost( 'draft' );
-				} else if ( $target.hasClass( 'publish-button' ) ) {
-					submitPost( 'publish' );
-				} else if ( $target.hasClass( 'preview-button' ) ) {
-					prepareFormData();
-					window.opener && window.opener.focus();
+				if ( $button.length ) {
+					if ( $button.hasClass( 'draft-button' ) ) {
+						$button.addClass( 'is-saving' );
+						submitPost( 'draft' );
+					} else if ( $button.hasClass( 'publish-button' ) ) {
+						submitPost( 'publish' );
+					} else if ( $button.hasClass( 'preview-button' ) ) {
+						prepareFormData();
+						window.opener && window.opener.focus();
 
-					$( '#wp-preview' ).val( 'dopreview' );
-					$( '#pressthis-form' ).attr( 'target', '_blank' ).submit().attr( 'target', '' );
-					$( '#wp-preview' ).val( '' );
+						$( '#wp-preview' ).val( 'dopreview' );
+						$( '#pressthis-form' ).attr( 'target', '_blank' ).submit().attr( 'target', '' );
+						$( '#wp-preview' ).val( '' );
+					}
+				} else if ( $target.hasClass( 'edit-post-link' ) && window.opener ) {
+					window.opener.focus();
+					window.self.close();
 				}
 			});
 
 			monitorOptionsModal();
 			monitorPlaceholder();
+			monitorCatList();
 
-			$( '.options-open' ).on( 'click.press-this', openSidebar );
-			$( '.options-close' ).on( 'click.press-this', closeSidebar );
+			$( '.options' ).on( 'click.press-this', function() {
+				if ( $( this ).hasClass( 'open' ) ) {
+					closeSidebar();
+				} else {
+					openSidebar();
+				}
+			});
 
 			// Close the sidebar when focus moves outside of it.
 			$( '.options-panel, .options-panel-back' ).on( 'focusout.press-this', function() {
@@ -577,7 +707,7 @@
 					if ( sidebarIsOpen && node && ! $node.hasClass( 'options-panel-back' ) &&
 						( node.nodeName === 'BODY' ||
 							( ! $node.closest( '.options-panel' ).length &&
-							! $node.closest( '.options-open' ).length ) ) ) {
+							! $node.closest( '.options' ).length ) ) ) {
 
 						closeSidebar();
 					}
@@ -641,7 +771,7 @@
 				catsCache.push( {
 					node: $this,
 					parents: $this.parents( 'li' ),
-					text: $this.children( 'label' ).text().toLowerCase()
+					text: $this.children( '.category' ).text().toLowerCase()
 				} );
 			} );
 		}

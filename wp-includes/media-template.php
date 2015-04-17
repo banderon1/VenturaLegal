@@ -418,9 +418,6 @@ function wp_print_media_templates() {
 						<# } else { #>
 							<span class="value">{{ data.uploadedToTitle }}</span>
 						<# } #>
-						<# if ( data.nonces.edit ) { #>
-						<a class="detach-from-parent" data-id="{{ data.id }}" href="#">(<?php _e( 'Detach' ); ?>)</a>
-						<# } #>
 					</label>
 				<# } #>
 				<div class="attachment-compat"></div>
@@ -817,7 +814,7 @@ function wp_print_media_templates() {
 	<script type="text/html" id="tmpl-embed-link-settings">
 		<label class="setting link-text">
 			<span><?php _e( 'Link Text' ); ?></span>
-			<input type="text" class="alignment" data-setting="link-text" />
+			<input type="text" class="alignment" data-setting="linkText" />
 		</label>
 		<div class="embed-container" style="display: none;">
 			<div class="embed-preview"></div>

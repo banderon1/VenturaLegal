@@ -16,7 +16,6 @@ if ( !defined('ABSPATH') )
 <h2><?php _e('Edit Comment'); ?></h2>
 
 <div id="poststuff">
-<input type="hidden" name="user_ID" value="<?php echo (int) $user_ID; ?>" />
 <input type="hidden" name="action" value="editedcomment" />
 <input type="hidden" name="comment_ID" value="<?php echo esc_attr( $comment->comment_ID ); ?>" />
 <input type="hidden" name="comment_post_ID" value="<?php echo esc_attr( $comment->comment_post_ID ); ?>" />
@@ -101,7 +100,7 @@ if ( !defined('ABSPATH') )
 <div class="misc-pub-section curtime misc-pub-curtime">
 <?php
 /* translators: Publish box date format, see http://php.net/date */
-$datef = __( 'M j, Y @ G:i' );
+$datef = __( 'M j, Y @ H:i' );
 $stamp = __('Submitted on: <b>%1$s</b>');
 $date = date_i18n( $datef, strtotime( $comment->comment_date ) );
 ?>
